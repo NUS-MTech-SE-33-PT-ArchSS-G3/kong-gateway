@@ -1,0 +1,260 @@
+_format_version: "3.0"
+
+# BidderGod API Gateway Configuration for AWS ECS
+# Declarative configuration for Kong Gateway
+# Uses AWS Cloud Map for service discovery
+
+services:
+  # ========================================
+  # User Service Routes
+  # ========================================
+  - name: user-service
+    url: http://user-service.biddergod-dev.local:8080
+    routes:
+      - name: user-api
+        paths:
+          - /api/users
+        strip_path: false
+    plugins:
+      - name: cors
+        config:
+          origins:
+            - "*"
+          methods:
+            - GET
+            - POST
+            - PUT
+            - DELETE
+            - PATCH
+            - OPTIONS
+          headers:
+            - Accept
+            - Accept-Version
+            - Content-Length
+            - Content-MD5
+            - Content-Type
+            - Date
+            - Authorization
+            - X-Auth-Token
+          exposed_headers:
+            - X-Auth-Token
+          credentials: true
+          max_age: 3600
+          preflight_continue: false
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+
+  # ========================================
+  # Auction Service Routes
+  # ========================================
+  - name: auction-service-health
+    url: http://auction-service.biddergod-dev.local:4000/health
+    routes:
+      - name: auction-health
+        paths:
+          - /api/auction-health
+        strip_path: true
+    plugins:
+      - name: cors
+        config:
+          origins:
+            - "*"
+          methods:
+            - GET
+            - OPTIONS
+          credentials: true
+
+  - name: auction-service
+    url: http://auction-service.biddergod-dev.local:4000/auctions
+    routes:
+      - name: auction-api
+        paths:
+          - /api/auctions
+        strip_path: true
+    plugins:
+      - name: cors
+        config:
+          origins:
+            - "*"
+          methods:
+            - GET
+            - POST
+            - PUT
+            - DELETE
+            - PATCH
+            - OPTIONS
+          headers:
+            - Accept
+            - Accept-Version
+            - Content-Length
+            - Content-MD5
+            - Content-Type
+            - Date
+            - Authorization
+            - X-Auth-Token
+          exposed_headers:
+            - X-Auth-Token
+          credentials: true
+          max_age: 3600
+          preflight_continue: false
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+
+  # ========================================
+  # Bid Command Service Routes (CQRS Write)
+  # ========================================
+  - name: bid-command-service
+    url: http://bid-command.biddergod-dev.local:8080
+    routes:
+      - name: bid-command-api
+        paths:
+          - /api/v1/bids
+          - ~/api/v1/bids/.*
+        strip_path: false
+        methods:
+          - POST
+          - OPTIONS
+        regex_priority: 1
+    plugins:
+      - name: cors
+        config:
+          origins:
+            - "*"
+          methods:
+            - POST
+            - OPTIONS
+          headers:
+            - Accept
+            - Accept-Version
+            - Content-Length
+            - Content-MD5
+            - Content-Type
+            - Date
+            - Authorization
+            - X-Auth-Token
+            - Idempotency-Key
+          exposed_headers:
+            - X-Auth-Token
+          credentials: true
+          max_age: 3600
+      - name: rate-limiting
+        config:
+          minute: 200
+          policy: local
+
+  # ========================================
+  # Bid Query Service Routes (CQRS Read)
+  # ========================================
+  - name: bid-query-service
+    url: http://bid-query.biddergod-dev.local:8080
+    routes:
+      - name: bid-query-api
+        paths:
+          - /api/v1/bids
+          - ~/api/v1/bids/.*
+        strip_path: false
+        methods:
+          - GET
+          - OPTIONS
+    plugins:
+      - name: cors
+        config:
+          origins:
+            - "*"
+          methods:
+            - GET
+            - OPTIONS
+          headers:
+            - Accept
+            - Accept-Version
+            - Content-Length
+            - Content-Type
+            - Date
+            - Authorization
+            - X-Auth-Token
+          exposed_headers:
+            - X-Auth-Token
+          credentials: true
+          max_age: 3600
+      - name: rate-limiting
+        config:
+          minute: 300
+          policy: local
+
+  # ========================================
+  # Payment Service Routes
+  # ========================================
+  - name: payment-service
+    url: http://payment-service.biddergod-dev.local:3000
+    routes:
+      - name: payment-api
+        paths:
+          - /api/payments
+        strip_path: false
+    plugins:
+      - name: cors
+        config:
+          origins:
+            - "*"
+          methods:
+            - GET
+            - POST
+            - PUT
+            - DELETE
+            - PATCH
+            - OPTIONS
+          headers:
+            - Accept
+            - Accept-Version
+            - Content-Length
+            - Content-MD5
+            - Content-Type
+            - Date
+            - Authorization
+            - X-Auth-Token
+          exposed_headers:
+            - X-Auth-Token
+          credentials: true
+          max_age: 3600
+          preflight_continue: false
+      - name: rate-limiting
+        config:
+          minute: 50
+          policy: local
+
+  # ========================================
+  # SSE Stream Service Routes
+  # ========================================
+  - name: sse-stream-service
+    url: http://sse-stream-service.biddergod-dev.local:8086
+    connect_timeout: 60000    # 60 seconds to establish connection
+    write_timeout: 3600000    # 1 hour for writing response
+    read_timeout: 3600000     # 1 hour for reading request
+    routes:
+      - name: sse-events
+        paths:
+          - /events
+        strip_path: false
+        methods:
+          - GET
+    plugins:
+      - name: cors
+        config:
+          origins:
+            - "*"
+          methods:
+            - GET
+            - OPTIONS
+          headers:
+            - Accept
+            - Authorization
+            - Cache-Control
+            - Last-Event-ID
+          credentials: true
+          exposed_headers:
+            - Content-Type
+          max_age: 3600

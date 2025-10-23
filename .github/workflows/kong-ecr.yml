@@ -1,0 +1,144 @@
+name: Build and Push Kong Gateway to ECR
+
+on:
+  push:
+    tags:
+      - 'kong-*.*.*'  # Trigger on tags like kong-1.0.0
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-southeast-1
+  AWS_ECR_REPOSITORY: biddergod-dev-kong
+  AWS_ECS_CLUSTER: biddergod-dev-cluster
+  SERVICE_NAME: biddergod-dev-kong
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5.0.0
+        with:
+          audience: sts.amazonaws.com
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::507737351923:role/GitHubActions-Role
+          role-session-name: github-actions-kong
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.login-ecr.outputs.registry }}/${{ env.AWS_ECR_REPOSITORY }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image digest
+        run: echo "Image pushed with tags:${{ steps.meta.outputs.tags }}"
+
+  deploy-to-ecs:
+    name: Deploy to ECS
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5.0.0
+        with:
+          audience: sts.amazonaws.com
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::507737351923:role/GitHubActions-Role
+          role-session-name: github-actions-kong
+
+      - name: Force ECS service deployment
+        run: |
+          echo "Triggering deployment for ${{ env.SERVICE_NAME }}..."
+          aws ecs update-service \
+            --cluster ${{ env.AWS_ECS_CLUSTER }} \
+            --service ${{ env.SERVICE_NAME }} \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Check deployed service
+        run: |
+          echo "Checking deployed service..."
+
+          # Get task definition ARN
+          TASK_DEF=$(aws ecs describe-services \
+            --cluster ${{ env.AWS_ECS_CLUSTER }} \
+            --services ${{ env.SERVICE_NAME }} \
+            --region ${{ env.AWS_REGION }} \
+            --query 'services[0].deployments[0].taskDefinition' \
+            --output text)
+
+          echo "Task Definition: $TASK_DEF"
+
+          # Get deployed Docker image
+          IMAGE=$(aws ecs describe-task-definition \
+            --task-definition $TASK_DEF \
+            --region ${{ env.AWS_REGION }} \
+            --query 'taskDefinition.containerDefinitions[0].image' \
+            --output text)
+
+          echo "Deployed Image: $IMAGE"
+
+          # Get deployment status
+          aws ecs describe-services \
+            --cluster ${{ env.AWS_ECS_CLUSTER }} \
+            --services ${{ env.SERVICE_NAME }} \
+            --region ${{ env.AWS_REGION }} \
+            --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount,Pending:pendingCount}' \
+            --output table
+
+      - name: Get task details
+        run: |
+          echo "Fetching latest task details..."
+          TASK_ARN=$(aws ecs list-tasks \
+            --cluster ${{ env.AWS_ECS_CLUSTER }} \
+            --service-name ${{ env.SERVICE_NAME }} \
+            --region ${{ env.AWS_REGION }} \
+            --query 'taskArns[0]' \
+            --output text)
+
+          if [ "$TASK_ARN" != "None" ]; then
+            aws ecs describe-tasks \
+              --cluster ${{ env.AWS_ECS_CLUSTER }} \
+              --tasks $TASK_ARN \
+              --region ${{ env.AWS_REGION }} \
+              --query 'tasks[0].{Status:lastStatus,Health:healthStatus,CreatedAt:createdAt}' \
+              --output table
+          else
+            echo "No running tasks found"
+          fi
