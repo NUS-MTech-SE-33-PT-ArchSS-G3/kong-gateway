@@ -108,7 +108,7 @@ services:
   # Bid Command Service Routes (CQRS Write)
   # ========================================
   - name: bid-command-service
-    url: http://bid-command.biddergod-dev.local:8080
+    url: http://bid-command.biddergod-dev.local:8082
     routes:
       - name: bid-command-api
         paths:
@@ -150,7 +150,7 @@ services:
   # Bid Query Service Routes (CQRS Read)
   # ========================================
   - name: bid-query-service
-    url: http://bid-query.biddergod-dev.local:8080
+    url: http://bid-query.biddergod-dev.local:8083
     routes:
       - name: bid-query-api
         paths:
